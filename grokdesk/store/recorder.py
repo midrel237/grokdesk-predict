@@ -16,6 +16,7 @@ le goulot d'étranglement du pipeline.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -88,20 +89,50 @@ CREATE TABLE IF NOT EXISTS windows (
 """
 
 
-class Recorder:
-    """Écrit dans DuckDB si disponible, sinon accumule en mémoire.
+COLUMNS: dict[str, list[str]] = {}
 
-    Le repli mémoire n'est pas de la complaisance : il permet aux tests et au
-    mode hors ligne de tourner sans dépendance, avec le même code d'appel.
+
+def _parse_schema() -> None:
+    """Extrait les noms de colonnes du DDL, pour construire les tables temp."""
+    import re
+    for block in SCHEMA.split("CREATE TABLE IF NOT EXISTS ")[1:]:
+        name = block.split("(", 1)[0].strip()
+        body = block.split("(", 1)[1].rsplit(")", 1)[0]
+        cols = []
+        for line in body.split(","):
+            line = line.strip()
+            if line:
+                cols.append(line.split()[0])
+        COLUMNS[name] = cols
+
+
+_parse_schema()
+
+
+class Recorder:
+    """Archive le marché. Deux formats, et le choix a des conséquences.
+
+    * `format="parquet"` (défaut) — écrit des fichiers Parquet datés via une
+      connexion DuckDB **en mémoire**. Aucun verrou sur disque, donc on peut
+      interroger l'archive *pendant* que le recorder tourne. C'est la raison
+      de ce mode : DuckDB en fichier prend un verrou exclusif, et un archivage
+      24/7 qu'il faut arrêter pour backtester ne sert à rien.
+    * `format="duckdb"` — base unique. Pratique pour un lot ponctuel, mais
+      mono-écrivain et sans lecture concurrente sous Windows.
+
+    Sans DuckDB installé, repli en mémoire : les tests et le mode hors ligne
+    tournent avec le même code d'appel.
     """
 
     def __init__(self, path: str | Path = "data/market.duckdb",
-                 batch_size: int = 2_000) -> None:
+                 batch_size: int = 2_000, fmt: str = "duckdb") -> None:
         self.path = Path(path)
         self.batch_size = batch_size
+        self.fmt = fmt
         self._con: Any = None
         self._buf: dict[str, list[tuple]] = {}
         self.written: dict[str, int] = {}
+        self.files: dict[str, int] = {}
         self.memory_only = False
 
     @staticmethod
@@ -112,17 +143,27 @@ class Recorder:
         except ImportError:
             return False
 
+    @property
+    def root(self) -> Path:
+        """Racine des partitions Parquet."""
+        return self.path if self.fmt == "parquet" else self.path.parent
+
     def open(self) -> "Recorder":
         try:
             import duckdb
         except ImportError:
             self.memory_only = True
             return self
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._con = duckdb.connect(str(self.path))
-        for stmt in SCHEMA.strip().split(";"):
-            if stmt.strip():
-                self._con.execute(stmt)
+        if self.fmt == "parquet":
+            self.root.mkdir(parents=True, exist_ok=True)
+            # connexion en mémoire : rien n'est verrouillé sur disque
+            self._con = duckdb.connect()
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._con = duckdb.connect(str(self.path))
+            for stmt in SCHEMA.strip().split(";"):
+                if stmt.strip():
+                    self._con.execute(stmt)
         return self
 
     # --- écriture --------------------------------------------------------
@@ -166,6 +207,38 @@ class Recorder:
                                w.expiry_ts, settle_price, outcome, p_up))
 
     # --- flush / lecture -------------------------------------------------
+    def _flush_parquet(self, table: str, rows: list[tuple]) -> None:
+        """Écrit un lot dans un fichier Parquet daté, partitionné par jour."""
+        import datetime
+        cols = COLUMNS[table]
+        day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        out = self.root / table / day
+        out.mkdir(parents=True, exist_ok=True)
+        stamp = f"{time.time():.3f}".replace(".", "")
+        target = out / f"{table}-{stamp}.parquet"
+
+        tmp = f"_t_{table}"
+        decl = ", ".join(f'"{c}" {self._ddl_type(table, c)}' for c in cols)
+        self._con.execute(f"CREATE OR REPLACE TEMP TABLE {tmp} ({decl})")
+        ph = ",".join("?" * len(cols))
+        self._con.executemany(f"INSERT INTO {tmp} VALUES ({ph})", rows)
+        self._con.execute(
+            f"COPY {tmp} TO '{target.as_posix()}' (FORMAT PARQUET)")
+        self._con.execute(f"DROP TABLE {tmp}")
+        self.files[table] = self.files.get(table, 0) + 1
+
+    @staticmethod
+    def _ddl_type(table: str, col: str) -> str:
+        for block in SCHEMA.split("CREATE TABLE IF NOT EXISTS ")[1:]:
+            if block.split("(", 1)[0].strip() != table:
+                continue
+            body = block.split("(", 1)[1].rsplit(")", 1)[0]
+            for line in body.split(","):
+                parts = line.strip().split()
+                if parts and parts[0] == col:
+                    return parts[1] if len(parts) > 1 else "VARCHAR"
+        return "VARCHAR"
+
     def flush(self, table: str | None = None) -> int:
         tables = [table] if table else list(self._buf)
         total = 0
@@ -174,13 +247,25 @@ class Recorder:
             if not rows:
                 continue
             if self._con is not None:
-                ph = ",".join("?" * len(rows[0]))
-                self._con.executemany(f"INSERT INTO {t} VALUES ({ph})", rows)
+                if self.fmt == "parquet":
+                    self._flush_parquet(t, rows)
+                else:
+                    ph = ",".join("?" * len(rows[0]))
+                    self._con.executemany(
+                        f"INSERT INTO {t} VALUES ({ph})", rows)
             self.written[t] = self.written.get(t, 0) + len(rows)
             total += len(rows)
             if self._con is not None:
                 self._buf[t] = []
         return total
+
+    # --- lecture ---------------------------------------------------------
+    def source(self, table: str) -> str:
+        """Expression SQL à interroger, selon le format."""
+        if self.fmt == "parquet":
+            glob = (self.root / table / "**" / "*.parquet").as_posix()
+            return f"read_parquet('{glob}', union_by_name=true)"
+        return table
 
     def price_rows(self, asset: str) -> list[tuple[float, float]]:
         """Relit un chemin de prix pour alimenter `PricePath.from_rows`."""
@@ -188,7 +273,8 @@ class Recorder:
             return [(r[0], r[3]) for r in self._buf.get("ticks", [])
                     if r[2] == asset]
         return self._con.execute(
-            "SELECT ts, price FROM ticks WHERE asset = ? ORDER BY ts", [asset]
+            f"SELECT ts, price FROM {self.source('ticks')} "
+            "WHERE asset = ? ORDER BY ts", [asset]
         ).fetchall()
 
     def close(self) -> None:

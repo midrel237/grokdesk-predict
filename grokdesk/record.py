@@ -151,14 +151,20 @@ def main() -> None:
                     help="niveaux de carnet archivés par côté")
     ap.add_argument("--poll", type=float, default=5.0,
                     help="secondes entre deux relevés")
-    ap.add_argument("--db", default="data/market.duckdb")
+    ap.add_argument("--db", default="data/parquet",
+                    help="répertoire des partitions Parquet, ou fichier .duckdb "
+                         "avec --format duckdb")
+    ap.add_argument("--format", choices=["parquet", "duckdb"],
+                    default="parquet",
+                    help="parquet (défaut) : lecture possible PENDANT "
+                         "l'enregistrement. duckdb : verrou exclusif.")
     ap.add_argument("--seconds", type=float, default=None,
                     help="s'arrêter après N secondes (défaut : jusqu'à Ctrl-C)")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
     assets = tuple(a.strip() for a in args.assets.split(",") if a.strip())
-    rec = Recorder(args.db).open()
+    rec = Recorder(args.db, fmt=args.format).open()
     if rec.memory_only:
         print("  duckdb absent : archivage en MEMOIRE seulement "
               "(rien ne sera conservé)")
