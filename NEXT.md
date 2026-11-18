@@ -105,20 +105,44 @@ Trois options, et c'est un réglage de sécurité système, donc ton choix :
 3. Installer pandas depuis une source signée (conda-forge) dans un
    environnement séparé.
 
+## Fait le 18/11 (suite)
+
+- ✅ **`git init` + deux commits.** 73 fichiers versionnés, `data/` exclu,
+  `.gitattributes` pour normaliser les fins de ligne.
+- ✅ **Recorder passé en Parquet.** DuckDB en fichier prend un verrou
+  exclusif : j'ai constaté en marche qu'on ne peut pas interroger l'archive
+  pendant que le recorder écrit, ce qui rend un archivage 24/7 inexploitable.
+  Il écrit maintenant des partitions Parquet datées via une connexion DuckDB
+  **en mémoire** — rien de verrouillé sur disque, lecture concurrente vérifiée
+  par test. `--format duckdb` reste disponible pour un lot ponctuel.
+- ✅ **Scripts de persistance** dans `scripts/`, avec relance automatique sur
+  crash (30 s de recul pour ne pas marteler l'API).
+- 103 tests (91 rapides en 2 s, 12 marqués `slow`).
+
+## ⚠️ Une action te revient
+
+L'enregistrement de la tâche planifiée a été refusé par la validation de
+sécurité, parce que c'est une modification système persistante. À lancer
+toi-même, une fois :
+
+```
+scripts\install-task.cmd        # démarre à l'ouverture de session
+scripts\uninstall-task.cmd      # pour la retirer, sans toucher aux données
+```
+
+Sans ça, le recorder ne tourne que pendant une session ouverte, et chaque jour
+sans lui est un jour de backtest définitivement perdu.
+
 ## Prochaine action, dans l'ordre
 
-1. **`git init` + premier commit.** Toujours pas versionné, et il y a
-   maintenant ~25 fichiers de code à protéger.
-2. **Lancer le recorder en continu** (`--poll 5`, sans `--seconds`), idéalement
-   en tâche planifiée Windows pour qu'il survive aux redémarrages. Chaque jour
-   sans lui est un jour de backtest perdu.
-3. Rejouer le book archivé dans `execution/paper.py` via
+1. **Repenser TAKER en maker.** Le spread de 1 cent mesuré rend l'exécution
+   *taker* non rentable sur un edge de 1,5 ¢ : traverser coûte ~2 % du
+   notionnel. C'est le changement de conception le plus important révélé par
+   les données, et il n'est pas encore amorcé.
+2. Rejouer le book archivé dans `execution/paper.py` via
    `PricePath.from_rows` — on a maintenant de la vraie donnée, le GBM n'est
    plus qu'un cas de contrôle.
-4. **Repenser TAKER en maker.** Le spread de 1 cent mesuré rend l'exécution
-   taker non rentable sur un edge de 1,5 ¢. C'est le changement de conception
-   le plus important révélé par les données.
-5. Brancher `assets/terminal.html` sur un WebSocket FastAPI + bouton kill
+3. Brancher `assets/terminal.html` sur un WebSocket FastAPI + bouton kill
    switch (toujours absent).
 
 ## Ce qui n'est pas fait
