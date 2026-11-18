@@ -1,0 +1,35 @@
+# GROK DESK — configuration réellement chargée par le code.
+#
+# L'ancienne version de ce fichier n'était jamais lue : le README l'admettait
+# (« the runtime is the source of truth »). C'est corrigé — `core/config.py`
+# le parse, et `tests/test_config.py` vérifie que ces valeurs arrivent bien
+# jusqu'aux agents.
+
+# Passer en live exige DEUX choses : dry_run: false ici ET la variable
+# d'environnement GROKDESK_DRY_RUN=0. Une seule des deux ne suffit pas.
+dry_run: true
+bankroll: 1000.0
+assets: [BTC, ETH, SOL]
+
+risk:
+  max_stake_fraction: 0.02        # 2 % de l'equity par pari, cap dur
+  max_open_positions: 3
+  max_entries_per_hour: 6
+  kelly_fraction: 0.25            # Kelly fractionnaire, jamais le plein
+  daily_drawdown_stop: 0.06       # kill switch
+  consecutive_red_days_stop: 3
+  ledger_drift_tolerance: 0.01
+
+edge:
+  min_edge: 0.02                  # edge net minimal après seuil d'équilibre
+  min_payout: 0.70                # sous 70 %, le seuil monte à 58,8 % : on refuse
+  max_feed_age_s: 2.0             # un flux plus vieux fait abstenir
+  min_horizon_s: 30.0
+  max_horizon_s: 900.0
+  min_samples_for_live: 600       # cf. model/calibration.samples_needed
+
+prior:
+  vol_halflife_s: 120.0
+  vol_floor_per_s: 0.000001
+  drift_per_s: 0.0                # 0 = on ne prétend pas prédire la direction
+  use_variance_drag: true

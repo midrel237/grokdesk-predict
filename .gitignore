@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Données de marché archivées par le recorder : volumineuses, régénérables en
+# continu, et surtout elles n'ont rien à faire dans l'historique git.
+data/
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# État du moteur sérialisé
+matrix.json

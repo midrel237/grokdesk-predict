@@ -1,0 +1,44 @@
+# GROK DESK — le noyau tourne en stdlib pure.
+#
+# `python -m grokdesk.desk` et `pytest tests/` ne demandent AUCUNE de ces
+# bibliothèques : les adaptateurs tiers sont importés paresseusement et
+# chacun expose `available()`. Installer uniquement ce dont on a besoin.
+
+# --- tests (seule dépendance de développement réellement requise) ---------
+pytest>=8.0
+
+# --- archivage du marché : l'action la plus urgente du plan ---------------
+# Colonnaire, Parquet natif, scans analytiques de backtest.
+duckdb>=1.1
+
+# --- flux spot temps réel -------------------------------------------------
+# Gère reconnexion, séquencement et normalisation des symboles.
+cryptofeed>=2.4
+
+# --- marchés d'événement (Polymarket, Kalshi, Limitless, Myriad) ----------
+# ccxt.prediction.polymarket : dérive les credentials L2 d'une privateKey et
+# signe l'EIP-712 en local. Remplace l'auth manuelle L1->L2.
+ccxt>=4.5
+
+# --- reporting de performance --------------------------------------------
+quantstats>=0.0.62
+pandas>=2.0
+
+# --- planification des tâches périodiques (revue quotidienne, sweeps) -----
+apscheduler>=3.10
+
+# --- LLM en périphérie (commentaire de régime, synthèse de logs) ----------
+# Remplace l'urllib bloquant de l'ancien llm.py, qui gelait la boucle asyncio.
+httpx>=0.27
+
+# --- ÉCARTÉS, et pourquoi (voir IMPLEMENTATION.md §5.1) -------------------
+# freqtrade   : framework complet qui remplacerait toute l'architecture, et
+#               ne modélise ni les binaires ni les marchés d'événement.
+# ta-lib      : lib C pénible à installer sous Windows ; EMA13 et Elder Ray
+#               font trois lignes (model/indicators.py), et l'argument est
+#               déjà qu'ils ne produisent pas d'edge sur 5 min.
+# skfolio     : optimisation de portefeuille moyenne-variance ; notre problème
+#               est le dimensionnement séquentiel d'un pari unique (Kelly).
+# vectorbt    : utile pour les balayages de paramètres, mais vérifier la
+#               LICENSE d'abord (Apache 2.0 + Commons Clause selon les
+#               sources, ce qui restreindrait un usage commercial).

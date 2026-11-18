@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grokdesk"
+version = "0.1.0"
+description = "An autonomous pump.fun trading desk built from small agents, with a head of desk that hires and fires."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["agents", "trading", "autonomous", "grok", "polymarket",
+            "prediction-markets", "binary-options", "calibration"]
+dependencies = []           # le noyau tourne en stdlib pure, volontairement
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+record = ["duckdb>=1.1"]                    # archivage du marché
+feeds = ["cryptofeed>=2.4"]                 # flux spot temps réel
+venues = ["ccxt>=4.5"]                      # ccxt.prediction.polymarket
+report = ["quantstats>=0.0.62", "pandas>=2.0"]
+schedule = ["apscheduler>=3.10"]
+llm = ["httpx>=0.27"]                       # LLM en périphérie, en async
+all = ["pytest>=8.0", "duckdb>=1.1", "cryptofeed>=2.4", "ccxt>=4.5",
+       "quantstats>=0.0.62", "pandas>=2.0", "apscheduler>=3.10",
+       "httpx>=0.27"]
+
+[project.scripts]
+grokdesk = "grokdesk.__main__:main"
+grokdesk-signals = "grokdesk.desk:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: runs de bout en bout (quelques minutes). `-m 'not slow'` pour les exclure.",
+]
+
+[tool.setuptools.packages.find]
+include = ["grokdesk*"]
